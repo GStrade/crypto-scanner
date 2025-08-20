@@ -2,8 +2,8 @@ name: Crypto Scanner
 
 on:
   schedule:
-    - cron: '0 12 * * *'   # ירוץ כל יום ב-12:00 UTC = 15:00 בישראל
-  workflow_dispatch:        # מאפשר להריץ ידנית
+    - cron: '0 12 * * *'   # 12:00 UTC = 15:00 בישראל
+  workflow_dispatch:
 
 jobs:
   run:
