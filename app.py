@@ -17,6 +17,7 @@ def get_top_lowcaps():
     return hot_coins[:5]
 
 def send_report():
+    bot.send_message(chat_id, "🚀 בדיקה: הבוט מחובר בהצלחה!")
     coins = get_top_lowcaps()
     for coin in coins:
         ticker = coin['symbol'].upper() + "-USD"
