@@ -1,24 +1,25 @@
-name: Crypto Scanner
+name: Daily Crypto Scanner
 
 on:
   schedule:
-    - cron: '0 12 * * *'   # 12:00 UTC = 15:00 בישראל
+    - cron: "0 4 * * *"   # 07:00 שעון ישראל
+    - cron: "0 12 * * *"  # 15:00 שעון ישראל
   workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-
-      - name: Setup Python
+      - uses: actions/checkout@v3
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-
+          python-version: '3.11'
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run bot
+        run: pip install yfinance matplotlib python-telegram-bot pycoingecko requests
+      - name: Run crypto bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          LUNAR_API_KEY: ${{ secrets.LUNAR_API_KEY }}
         run: python app.py
