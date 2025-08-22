@@ -1,0 +1,28 @@
+name: Daily Crypto Scanner
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # 07:00 שעון ישראל
+    - cron: "0 12 * * *"  # 15:00 שעון ישראל
+  workflow_dispatch:       # מאפשר להריץ ידנית מ-GitHub
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run crypto bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          CRYPTOCOMPARE_KEY: ${{ secrets.CRYPTOCOMPARE_KEY }}
+        run: python crypto_alert_bot.py
