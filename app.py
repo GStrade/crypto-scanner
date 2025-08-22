@@ -1,37 +1,54 @@
+import os
 import requests
 import yfinance as yf
 import matplotlib.pyplot as plt
 from pycoingecko import CoinGeckoAPI
 from telegram import Bot
 
-# --- Bot Token & Chat ID ---
-bot = Bot("8446143029:AAH1t5c-4RsTwLE6elOqpRJ6_jlzAkF8Z0U")
-chat_id = "1715673393"
+# --- קריאת משתני סביבה ---
+TOKEN = os.environ.get("BOT_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
+LUNAR_API_KEY = os.environ.get("LUNAR_API_KEY")
 
-# --- LunarCrush API Key ---
-LUNAR_API_KEY = "xsnjnf4qtqa704izrqzale17lrmejlr9b3tk4a7hc"
-
+bot = Bot(token=TOKEN)
 cg = CoinGeckoAPI()
 
-# ---------------- CoinGecko Screener ----------------
+# ---------------- פונקציות עזר ----------------
+def generate_chart(symbol):
+    try:
+        data = yf.download(symbol + "-USD", period="6mo", interval="1d")
+        if data.empty:
+            return None
+        plt.figure(figsize=(8,4))
+        plt.plot(data.index, data['Close'])
+        plt.title(f"{symbol.upper()} – גרף יומי")
+        plt.xlabel("תאריך")
+        plt.ylabel("מחיר ($)")
+        filepath = f"{symbol}.png"
+        plt.savefig(filepath)
+        plt.close()
+        return filepath
+    except Exception as e:
+        print(f"שגיאה בגרף עבור {symbol}: {e}")
+        return None
+
 def get_top_lowcaps():
     coins = cg.get_coins_markets(vs_currency='usd', order='market_cap_asc', per_page=100, page=1)
     filtered = []
     for c in coins:
         if not c['market_cap']:
             continue
-        if c['market_cap'] > 50_000_000:   # שווי שוק קטן
+        if c['market_cap'] > 50_000_000:   # Low Cap
             continue
-        if c['current_price'] > 5:         # מחיר קטן מ-5$
+        if c['current_price'] > 5:         # מחיר מתחת ל-5$
             continue
         if c['total_volume'] < c['market_cap'] * 0.1:  # ווליום חריג
             continue
-        if c['price_change_percentage_24h'] and c['price_change_percentage_24h'] < 5: # עלייה יומית
+        if c['price_change_percentage_24h'] and c['price_change_percentage_24h'] < 5:
             continue
         filtered.append(c)
     return filtered[:5]
 
-# ---------------- CoinGecko Trending ----------------
 def get_trending_coins():
     trending = cg.get_search_trending()
     results = []
@@ -44,9 +61,8 @@ def get_trending_coins():
             'market_cap_rank': item['market_cap_rank'],
             'score': item['score']
         })
-    return results
+    return results[:5]
 
-# ---------------- LunarCrush Trending ----------------
 def get_lunar_trending():
     url = "https://lunarcrush.com/api4/public/coins/list/v1"
     params = {"limit": 10, "sort": "social_volume_24h", "desc": True}
@@ -55,39 +71,42 @@ def get_lunar_trending():
     data = r.json()
     return data.get("data", [])[:5]
 
-# ---------------- Send Report ----------------
+# ---------------- שליחת דוח ----------------
 def send_report():
-    # בדיקה שהבוט מחובר
-    bot.send_message(chat_id, "🚀 סורק הקריפטו התחיל להריץ!")
+    bot.send_message(chat_id=CHAT_ID, text="🚀 סורק הקריפטו הופעל בהצלחה!")
 
-    # CoinGecko LowCap Filter
     coins = get_top_lowcaps()
+    message = "📊 *דו\"ח מטבעות יומי – קריפטו/אלטקוין*\n\n"
+
     if not coins:
-        bot.send_message(chat_id, "❌ לא נמצאו מטבעות מסוננים היום.")
+        message += "❌ לא נמצאו Low Cap מטבעות מתאימים היום.\n\n"
     else:
         for coin in coins:
-            msg = f"""
-💎 {coin['name']} ({coin['symbol'].upper()})
-💰 שווי שוק: {coin['market_cap']:,}$
-💵 מחיר: {coin['current_price']}$
-📈 שינוי 24ש': {coin['price_change_percentage_24h']}%
-"""
-            bot.send_message(chat_id, msg)
+            message += f"💎 *{coin['name']}* ({coin['symbol'].upper()})\n"
+            message += f"💰 שווי שוק: {coin['market_cap']:,}$\n"
+            message += f"💵 מחיר: {coin['current_price']}$\n"
+            message += f"📈 שינוי 24ש': {coin['price_change_percentage_24h']}%\n\n"
 
-    # CoinGecko Trending
     trending = get_trending_coins()
-    hot_list = "\n".join([f"{c['name']} ({c['symbol'].upper()})" for c in trending[:5]])
-    bot.send_message(chat_id, f"🔥 המטבעות הכי חמים ב-CoinGecko:\n{hot_list}")
+    if trending:
+        hot_list = "\n".join([f"🔥 {c['name']} ({c['symbol'].upper()})" for c in trending])
+        message += f"🔥 המטבעות הכי חמים ב-CoinGecko:\n{hot_list}\n\n"
 
-    # LunarCrush Trending
     lunar = get_lunar_trending()
     if lunar:
-        msg = "🌐 המטבעות הכי מדוברים ברשתות (LunarCrush):\n"
+        message += "🌐 המטבעות הכי מדוברים ברשתות (LunarCrush):\n"
         for c in lunar:
-            msg += f"🔥 {c['name']} ({c['symbol']}) | אזכורים: {c.get('social_volume_24h','?')} | GalaxyScore: {c.get('galaxy_score','?')}\n"
-        bot.send_message(chat_id, msg)
-    else:
-        bot.send_message(chat_id, "⚠️ לא התקבלו נתונים מ-LunarCrush.")
+            message += f"🔥 {c['name']} ({c['symbol']}) | אזכורים: {c.get('social_volume_24h','?')} | GalaxyScore: {c.get('galaxy_score','?')}\n"
+
+    bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
+
+    # שליחת גרפים
+    for coin in coins:
+        chart_path = generate_chart(coin['symbol'])
+        if chart_path:
+            bot.send_photo(chat_id=CHAT_ID, photo=open(chart_path, 'rb'), caption=f"{coin['symbol'].upper()} – גרף יומי")
+
+    bot.send_message(chat_id=CHAT_ID, text="✅ סריקת הקריפטו הסתיימה")
 
 if __name__ == "__main__":
     send_report()
