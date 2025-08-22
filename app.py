@@ -5,15 +5,15 @@ import matplotlib.pyplot as plt
 from pycoingecko import CoinGeckoAPI
 from telegram import Bot
 
-# --- קריאת משתני סביבה ---
+# --- Secrets ---
 TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-LUNAR_API_KEY = os.environ.get("LUNAR_API_KEY")
+CRYPTOCOMPARE_KEY = os.environ.get("CRYPTOCOMPARE_KEY")
 
 bot = Bot(token=TOKEN)
 cg = CoinGeckoAPI()
 
-# ---------------- פונקציות עזר ----------------
+# ---------------- פונקציות ----------------
 def generate_chart(symbol):
     try:
         data = yf.download(symbol + "-USD", period="6mo", interval="1d")
@@ -32,75 +32,88 @@ def generate_chart(symbol):
         print(f"שגיאה בגרף עבור {symbol}: {e}")
         return None
 
-def get_top_lowcaps():
-    coins = cg.get_coins_markets(vs_currency='usd', order='market_cap_asc', per_page=100, page=1)
+def get_lowcaps():
+    coins = cg.get_coins_markets(vs_currency='usd', order='market_cap_asc', per_page=50, page=1)
     filtered = []
     for c in coins:
-        if not c['market_cap']:
+        if not c['market_cap'] or c['market_cap'] > 50_000_000:  # Low Cap
             continue
-        if c['market_cap'] > 50_000_000:   # Low Cap
-            continue
-        if c['current_price'] > 5:         # מחיר מתחת ל-5$
-            continue
-        if c['total_volume'] < c['market_cap'] * 0.1:  # ווליום חריג
-            continue
-        if c['price_change_percentage_24h'] and c['price_change_percentage_24h'] < 5:
+        if c['current_price'] > 5:
             continue
         filtered.append(c)
     return filtered[:5]
 
-def get_trending_coins():
-    trending = cg.get_search_trending()
-    results = []
-    for coin in trending['coins']:
-        item = coin['item']
-        results.append({
-            'id': item['id'],
-            'name': item['name'],
-            'symbol': item['symbol'],
-            'market_cap_rank': item['market_cap_rank'],
-            'score': item['score']
-        })
-    return results[:5]
+def get_binance_price(symbol):
+    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol.upper()}USDT"
+    try:
+        r = requests.get(url)
+        data = r.json()
+        return {
+            "price": float(data['lastPrice']),
+            "change": float(data['priceChangePercent']),
+            "volume": float(data['quoteVolume'])
+        }
+    except:
+        return None
 
-def get_lunar_trending():
-    url = "https://lunarcrush.com/api4/public/coins/list/v1"
-    params = {"limit": 10, "sort": "social_volume_24h", "desc": True}
-    headers = {"Authorization": f"Bearer {LUNAR_API_KEY}"}
-    r = requests.get(url, headers=headers)
+def get_cryptocompare_news():
+    url = f"https://min-api.cryptocompare.com/data/v2/news/?lang=EN&api_key={CRYPTOCOMPARE_KEY}"
+    r = requests.get(url)
     data = r.json()
-    return data.get("data", [])[:5]
+    return data.get("Data", [])[:5]
 
 # ---------------- שליחת דוח ----------------
 def send_report():
-    bot.send_message(chat_id=CHAT_ID, text="🚀 סורק הקריפטו הופעל בהצלחה!")
+    bot.send_message(chat_id=CHAT_ID, text="🚀 סורק הקריפטו (Multi-Source) הופעל בהצלחה!")
 
-    coins = get_top_lowcaps()
-    message = "📊 *דו\"ח מטבעות יומי – קריפטו/אלטקוין*\n\n"
-
+    coins = get_lowcaps()
     if not coins:
-        message += "❌ לא נמצאו Low Cap מטבעות מתאימים היום.\n\n"
-    else:
-        for coin in coins:
-            message += f"💎 *{coin['name']}* ({coin['symbol'].upper()})\n"
-            message += f"💰 שווי שוק: {coin['market_cap']:,}$\n"
-            message += f"💵 מחיר: {coin['current_price']}$\n"
-            message += f"📈 שינוי 24ש': {coin['price_change_percentage_24h']}%\n\n"
+        bot.send_message(chat_id=CHAT_ID, text="❌ לא נמצאו מטבעות מתאימים היום.")
+        return
 
-    trending = get_trending_coins()
-    if trending:
-        hot_list = "\n".join([f"🔥 {c['name']} ({c['symbol'].upper()})" for c in trending])
-        message += f"🔥 המטבעות הכי חמים ב-CoinGecko:\n{hot_list}\n\n"
+    # חדשות עיקריות
+    news = get_cryptocompare_news()
+    headlines = "\n".join([f"📰 {n['title']}" for n in news])
 
-    lunar = get_lunar_trending()
-    if lunar:
-        message += "🌐 המטבעות הכי מדוברים ברשתות (LunarCrush):\n"
-        for c in lunar:
-            message += f"🔥 {c['name']} ({c['symbol']}) | אזכורים: {c.get('social_volume_24h','?')} | GalaxyScore: {c.get('galaxy_score','?')}\n"
+    message = "📊 *דו\"ח מטבעות יומי – קריפטו/אלטקוין*\n\n"
+    for coin in coins:
+        name = coin['name']
+        symbol = coin['symbol'].upper()
+        mcap = coin['market_cap']
+
+        # נתונים מבינאנס
+        binance = get_binance_price(symbol)
+        if not binance:
+            continue
+        price = binance['price']
+        change = binance['change']
+        volume = binance['volume']
+
+        # חישובי טכני
+        direction = "לונג" if change > 0 else "שורט"
+        entry = round(price * 0.98, 4)
+        stop = round(price * 0.90, 4)
+        tp1 = round(price * 1.15, 4)
+        tp2 = round(price * 1.30, 4)
+
+        message += f"**{name} ({symbol})** — Rank {coin.get('market_cap_rank','?')}\n"
+        message += f"מחיר נוכחי: ${price}\n"
+        message += f"כיוון: {direction}\n"
+        message += f"סיבה: "
+        if abs(change) > 5: message += "📈 שינוי יומי חד | "
+        if volume > mcap * 0.1: message += "🔥 ווליום חריג | "
+        message += f"💰 שווי שוק: {mcap:,}$\n"
+        message += f"כניסה: ${entry} (הדרגתי)\n"
+        message += f"סטופ: ${stop}\n"
+        message += f"יעדים: TP1 ${tp1} (+15%) | TP2 ${tp2} (+30%)\n"
+        message += f"הערכת סיכוי: ~{round(abs(change),2)}%\n\n"
+
+    message += "📰 *חדשות אחרונות מ-CryptoCompare:*\n" + headlines
+    message += "\n\n*הערה*: לא ייעוץ השקעות. שימוש לשיקולך בלבד."
 
     bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
 
-    # שליחת גרפים
+    # גרפים לכל מטבע
     for coin in coins:
         chart_path = generate_chart(coin['symbol'])
         if chart_path:
