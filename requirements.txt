@@ -1,0 +1,5 @@
+yfinance
+matplotlib
+python-telegram-bot
+pycoingecko
+requests
