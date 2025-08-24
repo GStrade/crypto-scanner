@@ -5,3 +5,5 @@ matplotlib
 mplfinance
 yfinance
 python-dotenv
+pycoingecko
+requests
